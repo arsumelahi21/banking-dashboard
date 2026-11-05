@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import { headers } from "next/headers";
+import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { cookies } from "next/headers";
 import { brand } from "@/lib/brand";
+import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -14,6 +15,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const instrumentSerif = Instrument_Serif({
+  variable: "--font-instrument-serif",
+  subsets: ["latin"],
+  weight: "400",
+});
+
 export const metadata: Metadata = {
   title: { default: brand.name, template: `%s · ${brand.name}` },
   description: brand.description,
@@ -21,14 +28,16 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: LayoutProps<"/">) {
-  // Reading headers makes every route render per request. Nonce-based CSP
+  // Reading cookies makes every route render per request. Nonce-based CSP
   // depends on this: a static page would ship scripts without a valid nonce.
-  await headers();
+  // Setting the theme here also avoids a flash without needing an inline script.
+  const theme = parseThemePreference((await cookies()).get(THEME_COOKIE)?.value);
 
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      data-theme={theme === "system" ? undefined : theme}
+      className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>
