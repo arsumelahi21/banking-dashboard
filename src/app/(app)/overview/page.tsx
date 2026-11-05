@@ -10,6 +10,7 @@ import { Money } from "@/components/ui/money";
 import { formatDay } from "@/lib/format";
 import { requireSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
+import { processDuePayments } from "@/server/payments/service";
 import { getOverview, type Overview } from "@/server/queries/overview";
 import { OverviewDashboard } from "./dashboard";
 
@@ -102,6 +103,8 @@ function ActivityCard({ recent }: Pick<Overview, "recent">) {
 
 export default async function OverviewPage() {
   const session = await requireSession();
+  // A failure here must never stop someone from seeing their balances.
+  await processDuePayments(getDb(), session.orgId).catch((error) => console.error("Processing due payments failed", error));
   const overview = await getOverview(getDb(), session.orgId);
 
   return (
@@ -111,7 +114,7 @@ export default async function OverviewPage() {
         description={`${session.orgName}'s cash position across every account.`}
         actions={
           <Button asChild>
-            <Link href="/payments">
+            <Link href="/payments/new">
               <ArrowLeftRight aria-hidden />
               Move money
             </Link>

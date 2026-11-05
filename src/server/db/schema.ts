@@ -11,6 +11,7 @@ import {
   timestamp,
   unique,
   uuid,
+  date,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -26,6 +27,8 @@ export const transactionMethod = pgEnum("transaction_method", [
   "fee",
 ]);
 export const cardStatus = pgEnum("card_status", ["active", "frozen"]);
+export const scheduledStatus = pgEnum("scheduled_status", ["scheduled", "completed", "failed", "canceled"]);
+export const paymentMethod = pgEnum("payment_method", ["ach", "wire"]);
 
 const timestamps = {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -130,7 +133,10 @@ export const recipients = pgTable(
     numberLast4: text("number_last4").notNull(),
     ...timestamps,
   },
-  (table) => [index("recipients_org_idx").on(table.orgId)],
+  (table) => [
+    unique("recipients_org_id_unique").on(table.orgId, table.id),
+    index("recipients_org_idx").on(table.orgId),
+  ],
 );
 
 /** What happened, as people see it. The money itself moves in `ledger_entries`. */
@@ -196,6 +202,77 @@ export const ledgerEntries = pgTable(
     index("ledger_entries_account_idx").on(table.accountId),
     index("ledger_entries_transaction_idx").on(table.transactionId),
   ],
+);
+
+/** A payment set up to run on a future date. Exactly one destination is set. */
+export const scheduledPayments = pgTable(
+  "scheduled_payments",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    fromAccountId: uuid("from_account_id").notNull(),
+    toAccountId: uuid("to_account_id"),
+    recipientId: uuid("recipient_id"),
+    method: paymentMethod(),
+    amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+    memo: text(),
+    scheduledFor: date("scheduled_for", { mode: "string" }).notNull(),
+    status: scheduledStatus().notNull().default("scheduled"),
+    transactionId: uuid("transaction_id"),
+    failureReason: text("failure_reason"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    unique("scheduled_payments_idempotency_unique").on(table.orgId, table.idempotencyKey),
+    foreignKey({
+      name: "scheduled_payments_from_fk",
+      columns: [table.orgId, table.fromAccountId],
+      foreignColumns: [accounts.orgId, accounts.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "scheduled_payments_to_fk",
+      columns: [table.orgId, table.toAccountId],
+      foreignColumns: [accounts.orgId, accounts.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "scheduled_payments_recipient_fk",
+      columns: [table.orgId, table.recipientId],
+      foreignColumns: [recipients.orgId, recipients.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "scheduled_payments_transaction_fk",
+      columns: [table.orgId, table.transactionId],
+      foreignColumns: [transactions.orgId, transactions.id],
+    }).onDelete("cascade"),
+    check("scheduled_payments_amount_positive", sql`${table.amountCents} > 0`),
+    check("scheduled_payments_one_destination", sql`(${table.toAccountId} is null) <> (${table.recipientId} is null)`),
+    index("scheduled_payments_due_idx").on(table.orgId, table.status, table.scheduledFor),
+  ],
+);
+
+/** A one-time code for a large payment, bound to that user and those exact details. */
+export const paymentChallenges = pgTable(
+  "payment_challenges",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    fingerprint: text().notNull(),
+    codeHash: text("code_hash").notNull(),
+    attempts: integer().notNull().default(0),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    ...timestamps,
+  },
+  (table) => [index("payment_challenges_user_idx").on(table.userId)],
 );
 
 /** Append-only record of security-relevant and money-moving actions. */

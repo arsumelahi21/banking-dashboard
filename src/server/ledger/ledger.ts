@@ -2,12 +2,13 @@ import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Db, Tx } from "@/server/db/client";
-import { accounts, auditLog, ledgerEntries, transactions } from "@/server/db/schema";
+import { accounts, auditLog, ledgerEntries, recipients, transactions } from "@/server/db/schema";
 
 export type LedgerErrorCode =
   | "INVALID_AMOUNT"
   | "SAME_ACCOUNT"
   | "ACCOUNT_NOT_FOUND"
+  | "RECIPIENT_NOT_FOUND"
   | "INSUFFICIENT_FUNDS"
   | "IDEMPOTENCY_CONFLICT";
 
@@ -47,57 +48,100 @@ export async function getAccountBalances(db: Db | Tx, orgId: string) {
     .orderBy(asc(accounts.createdAt), asc(accounts.name));
 }
 
-type TransferInput = {
+type MovementBase = {
   orgId: string;
-  actorUserId: string;
+  actorUserId: string | null;
   fromAccountId: string;
-  toAccountId: string;
   amountCents: number;
   /** Generated once per user intent. Retries send the same key. */
   idempotencyKey: string;
   memo?: string;
+  /**
+   * Runs inside the same database transaction, only when money actually moves. If
+   * it throws, the whole payment rolls back, so linked changes can't come apart.
+   */
+  onPosted?: (tx: Tx, transactionId: string) => Promise<void>;
 };
 
+type TransferInput = MovementBase & { toAccountId: string };
+type RecipientPaymentInput = MovementBase & { recipientId: string; method: "ach" | "wire" };
 type TransferResult = { transactionId: string; replayed: boolean };
 
-/**
- * Moves money between two of an organization's own accounts.
- *
- * Runs in one database transaction: either everything happens or nothing does.
- * Locking both accounts makes concurrent transfers wait their turn, so two of
- * them can't both spend the same balance. Locks are taken in a fixed order so
- * opposite transfers can't deadlock.
- */
-export async function transferBetweenAccounts(db: Db, input: TransferInput): Promise<TransferResult> {
-  const { orgId, actorUserId, fromAccountId, toAccountId, amountCents, idempotencyKey, memo } = input;
+type Destination =
+  | { type: "account"; toAccountId: string }
+  | { type: "recipient"; recipientId: string; method: "ach" | "wire" };
 
+function assertValidAmount(amountCents: number) {
   if (!Number.isSafeInteger(amountCents) || amountCents <= 0 || amountCents > MAX_TRANSFER_CENTS) {
     throw new LedgerError("INVALID_AMOUNT");
   }
-  if (fromAccountId === toAccountId) throw new LedgerError("SAME_ACCOUNT");
+}
 
-  const fingerprint = createHash("sha256")
-    .update(`${fromAccountId}|${toAccountId}|${amountCents}`)
-    .digest("hex");
+/**
+ * The one code path that moves money.
+ *
+ * Runs in one database transaction: either everything happens or nothing does.
+ * Locking the owned accounts makes concurrent payments wait their turn, so two of
+ * them can't both spend the same balance. Locks are taken in a fixed order so
+ * opposite transfers can't deadlock.
+ */
+async function moveMoney(db: Db, input: MovementBase, destination: Destination): Promise<TransferResult> {
+  const { orgId, actorUserId, fromAccountId, amountCents, idempotencyKey, memo, onPosted } = input;
+  assertValidAmount(amountCents);
+
+  const destinationKey = destination.type === "account" ? destination.toAccountId : `${destination.recipientId}|${destination.method}`;
+  const fingerprint = createHash("sha256").update(`${fromAccountId}|${destinationKey}|${amountCents}`).digest("hex");
+  const ownedIds = destination.type === "account" ? [fromAccountId, destination.toAccountId] : [fromAccountId];
 
   return db.transaction(async (tx) => {
     const locked = await tx
       .select({ id: accounts.id, name: accounts.name })
       .from(accounts)
-      .where(
-        and(
-          eq(accounts.orgId, orgId),
-          ne(accounts.kind, "external"),
-          inArray(accounts.id, [fromAccountId, toAccountId]),
-        ),
-      )
+      .where(and(eq(accounts.orgId, orgId), ne(accounts.kind, "external"), inArray(accounts.id, ownedIds)))
       .orderBy(asc(accounts.id))
       .for("update");
 
     const from = locked.find((account) => account.id === fromAccountId);
-    const to = locked.find((account) => account.id === toAccountId);
     // Same error for "doesn't exist" and "belongs to someone else", to reveal nothing.
-    if (!from || !to) throw new LedgerError("ACCOUNT_NOT_FOUND");
+    if (!from) throw new LedgerError("ACCOUNT_NOT_FOUND");
+
+    let creditAccountId: string;
+    let details: Pick<typeof transactions.$inferInsert, "status" | "method" | "description" | "counterparty" | "category">;
+
+    if (destination.type === "account") {
+      const to = locked.find((account) => account.id === destination.toAccountId);
+      if (!to) throw new LedgerError("ACCOUNT_NOT_FOUND");
+      creditAccountId = to.id;
+      details = {
+        status: "posted",
+        method: "transfer",
+        description: `Transfer to ${to.name}`,
+        counterparty: `${from.name} to ${to.name}`,
+        category: "Internal transfer",
+      };
+    } else {
+      const [recipient] = await tx
+        .select({ name: recipients.name })
+        .from(recipients)
+        .where(and(eq(recipients.orgId, orgId), eq(recipients.id, destination.recipientId)));
+      if (!recipient) throw new LedgerError("RECIPIENT_NOT_FOUND");
+
+      const [external] = await tx
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(and(eq(accounts.orgId, orgId), eq(accounts.kind, "external")));
+      if (!external) throw new LedgerError("ACCOUNT_NOT_FOUND");
+
+      creditAccountId = external.id;
+      details = {
+        // Wires settle the same day. ACH stays pending, holding the funds until it settles.
+        status: destination.method === "wire" ? "posted" : "pending",
+        method: destination.method,
+        description: `Payment to ${recipient.name}`,
+        counterparty: recipient.name,
+        category: "Payments",
+      };
+    }
 
     const [existing] = await tx
       .select({ id: transactions.id, fingerprint: transactions.idempotencyFingerprint })
@@ -116,36 +160,52 @@ export async function transferBetweenAccounts(db: Db, input: TransferInput): Pro
     const inserted = await tx
       .insert(transactions)
       .values({
+        ...details,
         id: transactionId,
         orgId,
-        status: "posted",
-        method: "transfer",
-        description: `Transfer to ${to.name}`,
-        counterparty: `${from.name} to ${to.name}`,
-        category: "Internal transfer",
-        memo,
+        memo: memo || null,
         occurredAt: new Date(),
         idempotencyKey,
         idempotencyFingerprint: fingerprint,
       })
       .onConflictDoNothing({ target: [transactions.orgId, transactions.idempotencyKey] })
       .returning({ id: transactions.id });
-    // Same key used concurrently for different accounts, so the locks didn't overlap.
+    // Same key used concurrently with different details, so the locks didn't overlap.
     if (inserted.length === 0) throw new LedgerError("IDEMPOTENCY_CONFLICT");
 
     await tx.insert(ledgerEntries).values([
       { orgId, transactionId, accountId: fromAccountId, amountCents: -amountCents },
-      { orgId, transactionId, accountId: toAccountId, amountCents },
+      { orgId, transactionId, accountId: creditAccountId, amountCents },
     ]);
 
     await tx.insert(auditLog).values({
       orgId,
       actorUserId,
-      action: "transfer.created",
+      action: destination.type === "account" ? "transfer.created" : "payment.created",
       targetId: transactionId,
-      metadata: { amountCents, fromAccountId, toAccountId },
+      metadata:
+        destination.type === "account"
+          ? { amountCents, fromAccountId, toAccountId: destination.toAccountId }
+          : { amountCents, fromAccountId, recipientId: destination.recipientId, method: destination.method },
     });
+
+    await onPosted?.(tx, transactionId);
 
     return { transactionId, replayed: false };
   });
+}
+
+/** Moves money between two of an organization's own accounts. */
+export async function transferBetweenAccounts(db: Db, { toAccountId, ...input }: TransferInput): Promise<TransferResult> {
+  if (input.fromAccountId === toAccountId) {
+    // Checked after the amount, so an invalid amount is always reported as such.
+    assertValidAmount(input.amountCents);
+    throw new LedgerError("SAME_ACCOUNT");
+  }
+  return moveMoney(db, input, { type: "account", toAccountId });
+}
+
+/** Sends money from an owned account to a saved recipient. */
+export async function payRecipient(db: Db, { recipientId, method, ...input }: RecipientPaymentInput): Promise<TransferResult> {
+  return moveMoney(db, input, { type: "recipient", recipientId, method });
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, desc, eq, exists, gte, ilike, lte, lt, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, exists, gte, ilike, inArray, lte, lt, ne, or, sql, type SQL } from "drizzle-orm";
 import type { TransactionFilters } from "@/lib/transaction-filters";
 import type { Db } from "@/server/db/client";
 import { accounts, cards, ledgerEntries, transactions } from "@/server/db/schema";
@@ -138,6 +138,38 @@ export async function listTransactions(db: Db, orgId: string, filters: Transacti
 /** Newest first, up to a fixed limit, so one request can't exhaust the server. */
 export function exportTransactions(db: Db, orgId: string, filters: TransactionFilters) {
   return selectRows(db, orgId, filters, { limit: EXPORT_LIMIT, offset: 0 });
+}
+
+/** Money sent out of the business or moved between accounts, newest first. */
+export async function listRecentPayments(db: Db, orgId: string, limit = 8) {
+  const totals = ownedTotals(db, orgId);
+  const rows = await db
+    .select({
+      id: transactions.id,
+      occurredAt: transactions.occurredAt,
+      description: transactions.description,
+      counterparty: transactions.counterparty,
+      method: transactions.method,
+      status: transactions.status,
+      netCents: totals.netCents,
+      movedCents: totals.movedCents,
+    })
+    .from(transactions)
+    .innerJoin(totals, eq(totals.transactionId, transactions.id))
+    .where(
+      and(
+        eq(transactions.orgId, orgId),
+        inArray(transactions.method, ["ach", "wire", "transfer"]),
+        or(eq(transactions.method, "transfer"), sql`${totals.netCents} < 0`),
+      ),
+    )
+    .orderBy(desc(transactions.occurredAt), asc(transactions.id))
+    .limit(limit);
+
+  return rows.map(({ netCents, movedCents, ...row }) => ({
+    ...row,
+    ...toAmount({ method: row.method, netCents, movedCents }),
+  }));
 }
 
 /** Returns null for a transaction that doesn't exist or belongs to someone else, alike. */

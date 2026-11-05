@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { lt, sql } from "drizzle-orm";
+import { dayKey, startOfMonth } from "@/lib/metrics";
 import type { Db, Tx } from "@/server/db/client";
 import {
   accounts,
@@ -9,6 +10,7 @@ import {
   organizations,
   rateLimits,
   recipients,
+  scheduledPayments,
   transactions,
   users,
 } from "@/server/db/schema";
@@ -47,7 +49,41 @@ export async function installWorkspace(tx: Tx, { user, expiresAt, now = new Date
     return { ...card, id, orgId, accountId };
   });
   await tx.insert(cards).values(cardRows);
-  await tx.insert(recipients).values(seedRecipients.map((recipient) => ({ ...recipient, orgId })));
+  const recipientRows = seedRecipients.map((recipient) => ({ ...recipient, id: randomUUID(), orgId }));
+  await tx.insert(recipients).values(recipientRows);
+  const recipientId = (name: string) => recipientRows.find((row) => row.name === name)!.id;
+
+  const inDays = (days: number) => dayKey(new Date(now.getTime() + days * 24 * 60 * 60 * 1000));
+  const base = { orgId, createdBy: userId, fromAccountId: accountIds.operating };
+  await tx.insert(scheduledPayments).values([
+    {
+      ...base,
+      recipientId: recipientId("Landmark Properties"),
+      method: "ach",
+      amountCents: 1_850_000,
+      memo: "Office rent",
+      // The first of next month, which is always in the future.
+      scheduledFor: dayKey(startOfMonth(now, -1)),
+      idempotencyKey: randomUUID(),
+    },
+    {
+      ...base,
+      recipientId: recipientId("Elena Vasquez Design"),
+      method: "ach",
+      amountCents: 620_000,
+      memo: "Brand refresh, final invoice",
+      scheduledFor: inDays(9),
+      idempotencyKey: randomUUID(),
+    },
+    {
+      ...base,
+      toAccountId: accountIds.reserve,
+      amountCents: 5_000_000,
+      memo: "Quarterly move to reserve",
+      scheduledFor: inDays(14),
+      idempotencyKey: randomUUID(),
+    },
+  ]);
 
   const activity = generateActivity(now).map(({ lines, card, ...item }) => {
     const id = randomUUID();

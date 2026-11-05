@@ -15,6 +15,13 @@
       "when": 1793911918128,
       "tag": "0001_ledger_guarantees",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1793914206179,
+      "tag": "0002_payments",
+      "breakpoints": true
     }
   ]
 }
