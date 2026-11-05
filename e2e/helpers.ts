@@ -7,6 +7,9 @@ export function randomIp(): string {
 }
 
 export async function startDemo(page: Page): Promise<void> {
+  // Each demo looks like a new visitor, so test volume can't reach the real limit
+  // of 20 demo sign-ins per hour from one address.
+  await page.context().setExtraHTTPHeaders({ "x-forwarded-for": randomIp() });
   await page.goto("/login");
   await page.getByRole("button", { name: "Explore the demo" }).click();
   await expect(page).toHaveURL(/\/overview$/, { timeout: 30_000 });

@@ -1,0 +1,1 @@
+CREATE INDEX "ledger_entries_org_account_idx" ON "ledger_entries" USING btree ("org_id","account_id");

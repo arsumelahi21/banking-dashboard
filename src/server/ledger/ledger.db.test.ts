@@ -99,6 +99,34 @@ describe("ledger", () => {
       expect(message).toContain("unbalanced");
     });
 
+    it("rejects a whole batch when one transaction in it doesn't balance", async () => {
+      const db = getDb();
+      const ids = await Promise.all(Array.from({ length: 50 }, () => newTransaction(a.orgId)));
+      const lines = ids.flatMap((transactionId) => [
+        { orgId: a.orgId, transactionId, accountId: a.operating, amountCents: 1_000 },
+        { orgId: a.orgId, transactionId, accountId: a.reserve, amountCents: -1_000 },
+      ]);
+      // One cent off, on one line, in the middle of a hundred.
+      lines[51] = { ...lines[51]!, amountCents: -999 };
+      expect(await databaseMessage(db.insert(ledgerEntries).values(lines))).toContain("unbalanced");
+
+      const saved = await db.select().from(ledgerEntries).where(eq(ledgerEntries.transactionId, ids[0]!));
+      expect(saved).toEqual([]);
+    });
+
+    it("rejects a later line that unbalances a transaction that was balanced", async () => {
+      const db = getDb();
+      const transactionId = await newTransaction(a.orgId);
+      await db.insert(ledgerEntries).values([
+        { orgId: a.orgId, transactionId, accountId: a.operating, amountCents: 1_000 },
+        { orgId: a.orgId, transactionId, accountId: a.reserve, amountCents: -1_000 },
+      ]);
+      const message = await databaseMessage(
+        db.insert(ledgerEntries).values({ orgId: a.orgId, transactionId, accountId: a.operating, amountCents: 5 }),
+      );
+      expect(message).toContain("unbalanced");
+    });
+
     it("rejects a single line that creates money", async () => {
       const transactionId = await newTransaction(a.orgId);
       const message = await databaseMessage(

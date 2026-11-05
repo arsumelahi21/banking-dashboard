@@ -42,6 +42,7 @@ describe("parseTransactionFilters", () => {
       type: "'; drop table transactions;--",
       direction: "sideways",
       account: "1 or 1=1",
+      card: "1 or 1=1",
       from: "yesterday",
       to: "2026-13-45",
       min: "-5",

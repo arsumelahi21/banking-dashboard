@@ -169,6 +169,7 @@ export const transactions = pgTable(
       foreignColumns: [cards.orgId, cards.id],
     }).onDelete("cascade"),
     index("transactions_org_occurred_idx").on(table.orgId, table.occurredAt.desc()),
+    index("transactions_org_card_idx").on(table.orgId, table.cardId),
   ],
 );
 
@@ -199,6 +200,8 @@ export const ledgerEntries = pgTable(
       foreignColumns: [accounts.orgId, accounts.id],
     }).onDelete("cascade"),
     check("ledger_entries_amount_nonzero", sql`${table.amountCents} <> 0`),
+    // Every query starts from one organization. Without this, each one scans all customers' lines.
+    index("ledger_entries_org_account_idx").on(table.orgId, table.accountId),
     index("ledger_entries_account_idx").on(table.accountId),
     index("ledger_entries_transaction_idx").on(table.transactionId),
   ],
@@ -251,6 +254,7 @@ export const scheduledPayments = pgTable(
     check("scheduled_payments_amount_positive", sql`${table.amountCents} > 0`),
     check("scheduled_payments_one_destination", sql`(${table.toAccountId} is null) <> (${table.recipientId} is null)`),
     index("scheduled_payments_due_idx").on(table.orgId, table.status, table.scheduledFor),
+    index("scheduled_payments_transaction_idx").on(table.orgId, table.transactionId),
   ],
 );
 
@@ -289,7 +293,10 @@ export const auditLog = pgTable(
     metadata: jsonb().$type<Record<string, string | number | boolean>>(),
     ...timestamps,
   },
-  (table) => [index("audit_log_org_idx").on(table.orgId, table.createdAt.desc())],
+  (table) => [
+    index("audit_log_org_idx").on(table.orgId, table.createdAt.desc()),
+    index("audit_log_actor_idx").on(table.actorUserId),
+  ],
 );
 
 /** Lives in Postgres because serverless instances share no memory. Keys are hashed. */

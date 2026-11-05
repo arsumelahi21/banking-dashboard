@@ -110,6 +110,17 @@ describe("transactions", () => {
       expect(rows.every((row) => row.accountNames.includes("Reserve"))).toBe(true);
     });
 
+    it("filters by card, and another organization's card shows nothing", async () => {
+      const facets = await getTransactionFacets(getDb(), a.orgId);
+      expect(facets.cards).toHaveLength(4);
+      const rows = await everything({ cardId: facets.cards[0]!.id });
+      expect(rows.length).toBeGreaterThan(0);
+      expect(rows.every((row) => row.method === "card")).toBe(true);
+
+      const theirs = await getTransactionFacets(getDb(), b.orgId);
+      expect((await list({ cardId: theirs.cards[0]!.id })).total).toBe(0);
+    });
+
     it("combines filters", async () => {
       const rows = await everything({ method: "card", category: "Software", direction: "out", q: "datadog" });
       expect(rows.length).toBeGreaterThan(0);

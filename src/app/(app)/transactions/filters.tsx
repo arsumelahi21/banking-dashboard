@@ -28,6 +28,7 @@ type FiltersProps = {
   filters: TransactionFilters;
   categories: string[];
   accounts: { id: string; name: string }[];
+  cards: { id: string; label: string; numberLast4: string }[];
   children: ReactNode;
 };
 
@@ -44,7 +45,7 @@ function LabeledField({ label, children }: { label: string; children: ReactNode 
  * Filter changes update the URL with replace, so they don't fill the back button's
  * history. The results stay on screen, dimmed, until the new ones arrive.
  */
-export function TransactionFilterBar({ filters, categories, accounts, children }: FiltersProps) {
+export function TransactionFilterBar({ filters, categories, accounts, cards, children }: FiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [pending, startTransition] = useTransition();
@@ -109,6 +110,7 @@ export function TransactionFilterBar({ filters, categories, accounts, children }
                   direction: undefined,
                   category: undefined,
                   accountId: undefined,
+                  cardId: undefined,
                   from: undefined,
                   to: undefined,
                   minCents: undefined,
@@ -173,6 +175,15 @@ export function TransactionFilterBar({ filters, categories, accounts, children }
               value={filters.accountId ?? ALL}
               onValueChange={(value) => apply({ accountId: fromSelect<string>(value) })}
               options={[{ value: ALL, label: "All accounts" }, ...accounts.map(({ id, name }) => ({ value: id, label: name }))]}
+              className="w-full"
+            />
+          </LabeledField>
+          <LabeledField label="Card">
+            <Select
+              aria-label="Card"
+              value={filters.cardId ?? ALL}
+              onValueChange={(value) => apply({ cardId: fromSelect<string>(value) })}
+              options={[{ value: ALL, label: "All cards" }, ...cards.map(({ id, label, numberLast4 }) => ({ value: id, label: `${label} ••${numberLast4}` }))]}
               className="w-full"
             />
           </LabeledField>

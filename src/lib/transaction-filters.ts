@@ -25,6 +25,7 @@ export type TransactionFilters = {
   direction?: Direction;
   category?: string;
   accountId?: string;
+  cardId?: string;
   from?: string;
   to?: string;
   minCents?: number;
@@ -64,6 +65,7 @@ export function parseTransactionFilters(params: RawParams): TransactionFilters {
   const q = get("q")?.trim().slice(0, MAX_QUERY_LENGTH);
   const category = get("category")?.trim();
   const accountId = get("account");
+  const cardId = get("card");
   const tx = get("tx");
   const page = Number(get("page"));
 
@@ -84,6 +86,7 @@ export function parseTransactionFilters(params: RawParams): TransactionFilters {
     direction: oneOf(DIRECTIONS, get("direction")),
     category: category && category.length <= MAX_CATEGORY_LENGTH ? category : undefined,
     accountId: accountId && UUID.test(accountId) ? accountId : undefined,
+    cardId: cardId && UUID.test(cardId) ? cardId : undefined,
     from,
     to,
     minCents,
@@ -103,6 +106,7 @@ export function serializeTransactionFilters(filters: Partial<TransactionFilters>
     ["direction", filters.direction],
     ["category", filters.category],
     ["account", filters.accountId],
+    ["card", filters.cardId],
     ["from", filters.from],
     ["to", filters.to],
     ["min", filters.minCents === undefined ? undefined : centsToDollarString(filters.minCents)],
@@ -124,6 +128,7 @@ export function countActiveFilters(filters: TransactionFilters): number {
     filters.direction,
     filters.category,
     filters.accountId,
+    filters.cardId,
     filters.from,
     filters.to,
     filters.minCents,

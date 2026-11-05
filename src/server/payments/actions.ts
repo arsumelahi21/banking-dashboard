@@ -26,6 +26,10 @@ const errorDetails: Record<PaymentErrorCode, { field: PaymentField; message: str
   SAME_ACCOUNT: { field: "to", message: "Choose a different account to send to." },
   ACCOUNT_NOT_FOUND: { field: "from", message: "That account wasn't found." },
   RECIPIENT_NOT_FOUND: { field: "to", message: "That recipient wasn't found." },
+  // Card errors only arise from card purchases, which have their own flow.
+  CARD_NOT_FOUND: { field: "form", message: "That card wasn't found." },
+  CARD_FROZEN: { field: "form", message: "That card is frozen." },
+  CARD_LIMIT_EXCEEDED: { field: "form", message: "That's over the card's monthly limit." },
   INSUFFICIENT_FUNDS: { field: "amount", message: "This is more than the available balance in that account." },
   IDEMPOTENCY_CONFLICT: { field: "form", message: "The details changed. Please review the payment again." },
   VERIFICATION_REQUIRED: { field: "form", message: "This payment needs a verification code." },

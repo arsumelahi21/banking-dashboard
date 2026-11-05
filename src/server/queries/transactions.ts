@@ -48,6 +48,7 @@ function buildConditions(orgId: string, filters: TransactionFilters, totals: Ret
   if (filters.status) conditions.push(eq(transactions.status, filters.status));
   if (filters.method) conditions.push(eq(transactions.method, filters.method));
   if (filters.category) conditions.push(eq(transactions.category, filters.category));
+  if (filters.cardId) conditions.push(eq(transactions.cardId, filters.cardId));
   if (filters.from) conditions.push(gte(transactions.occurredAt, new Date(`${filters.from}T00:00:00Z`)));
   if (filters.to) conditions.push(lt(transactions.occurredAt, nextDay(filters.to)));
 
@@ -216,7 +217,7 @@ export type TransactionDetail = NonNullable<Awaited<ReturnType<typeof getTransac
 
 /** The options for the filter menus, taken from this organization's own data. */
 export async function getTransactionFacets(db: Db, orgId: string) {
-  const [categories, accountRows] = await Promise.all([
+  const [categories, accountRows, cardRows] = await Promise.all([
     db
       .selectDistinct({ category: transactions.category })
       .from(transactions)
@@ -227,6 +228,11 @@ export async function getTransactionFacets(db: Db, orgId: string) {
       .from(accounts)
       .where(and(eq(accounts.orgId, orgId), ne(accounts.kind, "external")))
       .orderBy(asc(accounts.name)),
+    db
+      .select({ id: cards.id, label: cards.label, numberLast4: cards.numberLast4 })
+      .from(cards)
+      .where(eq(cards.orgId, orgId))
+      .orderBy(asc(cards.label)),
   ]);
-  return { categories: categories.map((row) => row.category), accounts: accountRows };
+  return { categories: categories.map((row) => row.category), accounts: accountRows, cards: cardRows };
 }

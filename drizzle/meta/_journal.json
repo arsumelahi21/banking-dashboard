@@ -22,6 +22,27 @@
       "when": 1793914206179,
       "tag": "0002_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793916359625,
+      "tag": "0003_ledger_org_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793917459603,
+      "tag": "0004_query_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793917460317,
+      "tag": "0005_ledger_trigger_uses_index",
+      "breakpoints": true
     }
   ]
 }

@@ -106,7 +106,7 @@ export default async function TransactionsPage({ searchParams }: PageProps<"/tra
         }
       />
 
-      <TransactionFilterBar filters={filters} categories={facets.categories} accounts={facets.accounts}>
+      <TransactionFilterBar filters={filters} categories={facets.categories} accounts={facets.accounts} cards={facets.cards}>
         <p role="status" className="flex flex-wrap gap-x-3 gap-y-1 text-sm text-fg-muted">
           <span>
             <span className="font-medium text-fg tabular-nums">{result.total.toLocaleString("en-US")}</span>{" "}
