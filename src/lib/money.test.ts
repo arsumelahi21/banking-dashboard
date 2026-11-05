@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatMoney } from "./money";
+import { centsToDollarString, formatMoney, parseDollarsToCents } from "./money";
 
 describe("formatMoney", () => {
   it("formats cents as dollars with thousands separators", () => {
@@ -26,5 +26,35 @@ describe("formatMoney", () => {
     expect(() => formatMoney(10.5)).toThrow(RangeError);
     expect(() => formatMoney(Number.NaN)).toThrow(RangeError);
     expect(() => formatMoney(Number.MAX_SAFE_INTEGER + 1)).toThrow(RangeError);
+  });
+});
+
+describe("parseDollarsToCents", () => {
+  it.each([
+    ["10", 1000],
+    ["10.5", 1050],
+    ["10.05", 1005],
+    ["0.07", 7],
+    ["$1,234.56", 123456],
+    [" 19.99 ", 1999],
+    ["0", 0],
+    // These go wrong with floating point: 1.15 * 100 is 114.99999999999999.
+    ["1.15", 115],
+    ["4.35", 435],
+    ["1.10", 110],
+  ])("reads %s as %i cents", (input, cents) => {
+    expect(parseDollarsToCents(input)).toBe(cents);
+  });
+
+  it.each(["", "abc", "-5", "1.234", "1e5", "1.2.3", "NaN", "Infinity", "12345678901234", "0x10"])("rejects %j", (input) => {
+    expect(parseDollarsToCents(input)).toBeNull();
+  });
+});
+
+describe("centsToDollarString", () => {
+  it("round-trips with parsing", () => {
+    for (const cents of [0, 5, 115, 1050, 123456]) {
+      expect(parseDollarsToCents(centsToDollarString(cents))).toBe(cents);
+    }
   });
 });

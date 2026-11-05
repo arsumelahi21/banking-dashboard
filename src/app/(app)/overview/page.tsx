@@ -2,7 +2,7 @@ import { ArrowLeftRight, LayoutDashboard } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/shell/page-header";
-import { Badge } from "@/components/ui/badge";
+import { TransactionStatusBadge } from "@/components/transaction-status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/feedback";
@@ -14,12 +14,6 @@ import { getOverview, type Overview } from "@/server/queries/overview";
 import { OverviewDashboard } from "./dashboard";
 
 export const metadata: Metadata = { title: "Overview" };
-
-const statusBadges = {
-  pending: { label: "Pending", tone: "neutral" },
-  failed: { label: "Failed", tone: "danger" },
-  posted: null,
-} as const;
 
 function AccountsCard({ accounts, totalCents, availableCents }: Pick<Overview, "accounts" | "totalCents" | "availableCents">) {
   return (
@@ -79,23 +73,27 @@ function ActivityCard({ recent }: Pick<Overview, "recent">) {
       </CardHeader>
       <CardContent>
         <ul className="flex flex-col divide-y divide-border">
-          {recent.map((item) => {
-            const badge = statusBadges[item.status];
-            return (
-              <li key={item.id} className="flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-fg">{item.counterparty}</p>
-                  <p className="truncate text-xs text-fg-muted">{formatDay(item.occurredAt)}
-                    {item.description !== item.counterparty ? ` · ${item.description}` : null}
-                  </p>
-                </div>
-                <div className="flex flex-col items-end gap-1">
-                  <Money cents={item.amountCents} signed={item.signed} className="text-sm text-fg" />
-                  {badge ? <Badge tone={badge.tone}>{badge.label}</Badge> : null}
-                </div>
-              </li>
-            );
-          })}
+          {recent.map((item) => (
+            <li key={item.id} className="relative flex items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
+              <div className="min-w-0">
+                <Link
+                  href={`/transactions?tx=${item.id}`}
+                  prefetch={false}
+                  className="block truncate rounded text-sm font-medium text-fg after:absolute after:inset-0 after:content-[''] hover:underline"
+                >
+                  {item.counterparty}
+                </Link>
+                <p className="truncate text-xs text-fg-muted">
+                  {formatDay(item.occurredAt)}
+                  {item.description !== item.counterparty ? ` · ${item.description}` : null}
+                </p>
+              </div>
+              <div className="flex flex-col items-end gap-1">
+                <Money cents={item.amountCents} signed={item.signed} className="text-sm text-fg" />
+                <TransactionStatusBadge status={item.status} />
+              </div>
+            </li>
+          ))}
         </ul>
       </CardContent>
     </Card>

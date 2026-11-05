@@ -34,6 +34,14 @@ test("the change in cash reconciles with net cash flow at every range", async ({
   }
 });
 
+test("a recent activity item opens that transaction's details", async ({ page }) => {
+  const item = page.getByRole("heading", { name: "Recent activity" }).locator("xpath=ancestor::section").getByRole("link").nth(1);
+  const name = await item.textContent();
+  await item.click();
+  await expect(page).toHaveURL(/\/transactions\?tx=/);
+  await expect(page.getByRole("dialog").getByRole("heading", { name: name! })).toBeVisible();
+});
+
 test("account numbers are masked", async ({ page }) => {
   const text = await page.getByRole("heading", { name: "Accounts" }).locator("xpath=ancestor::section").textContent();
   expect(text).toContain("••4821");
