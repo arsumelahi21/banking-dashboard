@@ -8,7 +8,7 @@ export function Logo() {
         <path d="M12 2c-6 6-6 14 0 20" stroke="currentColor" strokeWidth="2" />
         <path d="M12 2v20" stroke="currentColor" strokeWidth="2" />
       </svg>
-      <span className="font-display text-xl leading-none">{brand.name}</span>
+      <span className="font-display text-lg leading-none font-bold">{brand.name}</span>
     </span>
   );
 }

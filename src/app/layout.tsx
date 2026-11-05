@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
+import { Geist, Geist_Mono, Plus_Jakarta_Sans } from "next/font/google";
 import { cookies } from "next/headers";
 import { brand } from "@/lib/brand";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
@@ -15,10 +15,9 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
-const instrumentSerif = Instrument_Serif({
-  variable: "--font-instrument-serif",
+const headingFont = Plus_Jakarta_Sans({
+  variable: "--font-heading",
   subsets: ["latin"],
-  weight: "400",
 });
 
 export const metadata: Metadata = {
@@ -37,7 +36,7 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       data-theme={theme === "system" ? undefined : theme}
-      className={`${geistSans.variable} ${geistMono.variable} ${instrumentSerif.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${headingFont.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">{children}</body>
     </html>

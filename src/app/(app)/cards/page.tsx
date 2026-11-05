@@ -35,7 +35,7 @@ function CardPanel({ card }: { card: CardRow }) {
         )}
       >
         <div className="flex items-start justify-between gap-2">
-          <h2 className="font-display text-2xl leading-none">{card.label}</h2>
+          <h2 className="font-display text-lg font-semibold">{card.label}</h2>
           {frozen ? (
             <span className="flex items-center gap-1 text-xs font-medium text-fg">
               <Snowflake className="size-3.5" aria-hidden />
