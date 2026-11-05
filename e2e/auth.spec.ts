@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 import { randomIp, startDemo } from "./helpers";
 
 test.use({ extraHTTPHeaders: { "x-forwarded-for": randomIp() } });
@@ -53,19 +53,49 @@ test.describe("password sign in", () => {
     expect(unknownEmail).toBe(wrongPassword);
   });
 
-  test("blocks repeated guesses for one email, even from new addresses", async ({ browser }) => {
-    const target = `locked-${randomUUID()}@example.test`;
-    let lastMessage: string | null = null;
+  const attempt = async (browser: Browser, ip: string, email: string, password: string) => {
+    const context = await browser.newContext({ extraHTTPHeaders: { "x-forwarded-for": ip } });
+    const page = await context.newPage();
+    await signIn(page, email, password);
+    return { page, close: () => context.close() };
+  };
+  const messageOf = (page: Page) => page.locator("form").getByRole("alert").textContent();
 
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-      const context = await browser.newContext({ extraHTTPHeaders: { "x-forwarded-for": randomIp() } });
-      const page = await context.newPage();
-      await signIn(page, target, "a-wrong-password");
-      lastMessage = await page.locator("form").getByRole("alert").textContent();
-      await context.close();
+  test("blocks repeated guesses from one address", async ({ browser }) => {
+    const target = `locked-${randomUUID()}@example.test`;
+    const ip = randomIp();
+    let last: string | null = null;
+    for (let index = 0; index < 6; index += 1) {
+      const { page, close } = await attempt(browser, ip, target, "a-wrong-password");
+      last = await messageOf(page);
+      await close();
+    }
+    expect(last).toContain("Too many attempts");
+  });
+
+  test("an attacker's guesses can't lock the real person out", async ({ browser }) => {
+    const attackerIp = randomIp();
+    for (let index = 0; index < 6; index += 1) {
+      const { close, page } = await attempt(browser, attackerIp, email(), "a-wrong-password");
+      await messageOf(page);
+      await close();
     }
 
-    expect(lastMessage).toContain("Too many attempts");
+    const { page, close } = await attempt(browser, randomIp(), email(), password());
+    await expect(page).toHaveURL(/\/overview$/);
+    await close();
+  });
+
+  test("guessing one email from many addresses still gets blocked", async ({ browser }) => {
+    test.setTimeout(90_000);
+    const target = `spread-${randomUUID()}@example.test`;
+    let last: string | null = null;
+    for (let index = 0; index < 21; index += 1) {
+      const { page, close } = await attempt(browser, randomIp(), target, "a-wrong-password");
+      last = await messageOf(page);
+      await close();
+    }
+    expect(last).toContain("Too many attempts");
   });
 });
 

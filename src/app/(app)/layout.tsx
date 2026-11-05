@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Logo } from "@/components/shell/logo";
 import { BottomNav, SidebarNav } from "@/components/shell/nav";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
+import { SessionTimeout } from "@/components/shell/session-timeout";
 import { SignOutButton } from "@/components/shell/user-menu";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
 import { requireSession } from "@/server/auth/session";
@@ -59,6 +60,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
       </div>
 
       <BottomNav />
+      <SessionTimeout />
     </div>
   );
 }

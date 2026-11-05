@@ -34,7 +34,17 @@ const fail = (field: PaymentField, message: string): ParseResult => ({ ok: false
 
 /** Runs on the server for every step, however the request was made. Never trusts the form. */
 export function parsePaymentInput(raw: RawPaymentInput, now = new Date()): ParseResult {
-  const { idempotencyKey, fromAccountId, toAccountId, recipientId, method } = raw;
+  // Server actions accept whatever a request sends, whatever the types here say.
+  if (typeof raw !== "object" || raw === null) return fail("form", "Please reload the page and try again.");
+  for (const value of Object.values(raw)) {
+    if (value !== undefined && typeof value !== "string") return fail("form", "Please reload the page and try again.");
+  }
+
+  const idempotencyKey = raw.idempotencyKey;
+  const fromAccountId = raw.fromAccountId?.toLowerCase();
+  const toAccountId = raw.toAccountId?.toLowerCase();
+  const recipientId = raw.recipientId?.toLowerCase();
+  const method = raw.method;
 
   if (!idempotencyKey || !UUID.test(idempotencyKey)) return fail("form", "Please reload the page and try again.");
   if (!fromAccountId || !UUID.test(fromAccountId)) return fail("from", "Choose an account to pay from.");

@@ -1,11 +1,12 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
 import { eq } from "drizzle-orm";
+import { SESSION_IDLE_MS } from "@/lib/session-cookie";
 import type { Db, Tx } from "@/server/db/client";
 import { organizations, sessions, users } from "@/server/db/schema";
 
+export { SESSION_IDLE_MS };
 export const SESSION_ABSOLUTE_MS = 12 * 60 * 60 * 1000;
-export const SESSION_IDLE_MS = 30 * 60 * 1000;
 /** Avoids a database write on every page view. */
 const TOUCH_INTERVAL_MS = 60 * 1000;
 
@@ -53,6 +54,7 @@ export async function resolveSession(db: Db, token: string, now = new Date()): P
       email: users.email,
       role: users.role,
       orgName: organizations.name,
+      orgExpiresAt: organizations.expiresAt,
     })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
@@ -62,7 +64,8 @@ export async function resolveSession(db: Db, token: string, now = new Date()): P
   if (!row) return null;
 
   const idleFor = now.getTime() - row.lastSeenAt.getTime();
-  if (row.expiresAt <= now || idleFor >= SESSION_IDLE_MS) {
+  const workspaceExpired = row.orgExpiresAt !== null && row.orgExpiresAt <= now;
+  if (row.expiresAt <= now || idleFor >= SESSION_IDLE_MS || workspaceExpired) {
     await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
     return null;
   }

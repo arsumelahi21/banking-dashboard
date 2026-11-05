@@ -15,7 +15,8 @@ export function getDb(): Db {
   if (!globalForDb.__db) {
     const sql = postgres(env().DATABASE_URL, {
       max: 5,
-      connect_timeout: 5,
+      // Long enough for a serverless database to wake from being paused.
+      connect_timeout: 10,
       idle_timeout: 20,
       // Neon's pooled endpoint runs PgBouncer, which can't use prepared statements.
       prepare: false,

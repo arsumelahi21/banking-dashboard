@@ -6,13 +6,14 @@ import { parsePaymentInput, type PaymentField, type RawPaymentInput } from "@/li
 import { consumeRateLimit } from "@/server/auth/rate-limit";
 import { requireSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
+import { logError } from "@/server/log";
 import { LedgerError } from "@/server/ledger/ledger";
 import {
   addRecipient,
   cancelScheduledPayment,
   PaymentError,
   previewPayment,
-  runScheduledPayment,
+  sendScheduledEarly,
   submitPayment,
   type PaymentErrorCode,
   type PaymentPreview,
@@ -43,7 +44,7 @@ function toFailure(error: unknown): Failure {
     return { ok: false, code: error.code, ...errorDetails[error.code] };
   }
   // Anything unexpected is logged here and stays out of the response.
-  console.error("Payment failed unexpectedly", error);
+  logError("Payment failed unexpectedly", error);
   return { ok: false, field: "form", message: "We couldn't complete that. It's safe to try again; it won't send twice." };
 }
 
@@ -80,11 +81,11 @@ export async function submitPaymentAction(
   const parsed = parsePaymentInput(raw);
   if (!parsed.ok) return parsed;
 
-  const code = verification.code?.replace(/\s/g, "");
+  const code = typeof verification?.code === "string" ? verification.code.replace(/\s/g, "") : undefined;
   if (code !== undefined && !/^\d{6}$/.test(code)) {
     return { ok: false, field: "form", code: "CODE_INVALID", message: errorDetails.CODE_INVALID.message };
   }
-  const challengeId = z.uuid().safeParse(verification.challengeId).data;
+  const challengeId = z.uuid().safeParse(verification?.challengeId).data;
 
   try {
     const result = await submitPayment(db, { orgId: session.orgId, userId: session.userId }, parsed.value, { challengeId, code });
@@ -112,9 +113,10 @@ export async function sendScheduledNowAction(id: string): Promise<{ ok: boolean;
   const parsed = idSchema.safeParse(id);
   if (!parsed.success) return { ok: false, message: "That payment wasn't found." };
 
-  const outcome = await runScheduledPayment(getDb(), session.orgId, parsed.data, session.userId);
+  const outcome = await sendScheduledEarly(getDb(), { orgId: session.orgId, userId: session.userId }, parsed.data);
   revalidatePath("/", "layout");
   if (outcome === "completed") return { ok: true };
+  if (outcome === "verification_required") return { ok: false, message: "Large payments can't be sent early. It will run on its scheduled date." };
   return {
     ok: false,
     message: outcome === "failed" ? "This payment couldn't be sent. Check the available balance." : "This payment has already run or been canceled.",

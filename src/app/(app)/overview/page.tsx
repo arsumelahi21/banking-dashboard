@@ -10,6 +10,7 @@ import { Money } from "@/components/ui/money";
 import { formatDay } from "@/lib/format";
 import { requireSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
+import { logError } from "@/server/log";
 import { processDuePayments } from "@/server/payments/service";
 import { getOverview, type Overview } from "@/server/queries/overview";
 import { OverviewDashboard } from "./dashboard";
@@ -104,7 +105,7 @@ function ActivityCard({ recent }: Pick<Overview, "recent">) {
 export default async function OverviewPage() {
   const session = await requireSession();
   // A failure here must never stop someone from seeing their balances.
-  await processDuePayments(getDb(), session.orgId).catch((error) => console.error("Processing due payments failed", error));
+  await processDuePayments(getDb(), session.orgId).catch((error) => logError("Processing due payments failed", error));
   const overview = await getOverview(getDb(), session.orgId);
 
   return (

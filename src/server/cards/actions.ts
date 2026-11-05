@@ -6,6 +6,7 @@ import { parseDollarsToCents } from "@/lib/money";
 import { consumeRateLimit } from "@/server/auth/rate-limit";
 import { requireSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
+import { logError } from "@/server/log";
 import { authorizeCardPurchase, LedgerError } from "@/server/ledger/ledger";
 import { setCardLimit, setCardStatus } from "./service";
 
@@ -66,7 +67,7 @@ export async function simulatePurchaseAction(input: { cardId: string; idempotenc
   const parsed = purchaseSchema.safeParse(input);
   if (!parsed.success) return { ok: false, message: "Enter a merchant name of 2 to 60 characters." };
 
-  const amountCents = parseDollarsToCents(input.amount);
+  const amountCents = typeof input.amount === "string" ? parseDollarsToCents(input.amount) : null;
   if (!amountCents) return { ok: false, message: "Enter an amount like 42.50." };
 
   try {
@@ -76,7 +77,7 @@ export async function simulatePurchaseAction(input: { cardId: string; idempotenc
   } catch (error) {
     if (error instanceof LedgerError && error.code === "CARD_NOT_FOUND") return { ok: false, message: "That card wasn't found." };
     if (error instanceof LedgerError && error.code === "INVALID_AMOUNT") return { ok: false, message: "Enter an amount we can process." };
-    console.error("Card purchase failed unexpectedly", error);
+    logError("Card purchase failed unexpectedly", error);
     return { ok: false, message: "We couldn't complete that. It's safe to try again." };
   }
 }

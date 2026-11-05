@@ -4,3 +4,6 @@
  */
 export const SESSION_COOKIE =
   process.env.NODE_ENV === "production" ? "__Host-session" : "session";
+
+/** Signed out after this long without a request. The server enforces it; the UI only warns. */
+export const SESSION_IDLE_MS = 30 * 60 * 1000;

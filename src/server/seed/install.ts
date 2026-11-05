@@ -11,6 +11,7 @@ import {
   rateLimits,
   recipients,
   scheduledPayments,
+  sessions,
   transactions,
   users,
 } from "@/server/db/schema";
@@ -18,6 +19,8 @@ import { generateActivity, seedAccounts, seedCards, seedRecipients, type Account
 
 const WORKSPACE_NAME = "Fieldstone Studio";
 const MAX_LINES_PER_INSERT = 1000;
+/** Sized to stay well inside a small database plan. See the storage note in the README. */
+const MAX_LIVE_DEMOS = 200;
 
 type WorkspaceInput = {
   user: { email: string; name: string; passwordHash: string | null };
@@ -116,20 +119,30 @@ export async function installWorkspace(tx: Tx, { user, expiresAt, now = new Date
 }
 
 /**
- * Removes expired demo workspaces and old rate limit counters. The ledger is
- * append-only, so this is the one place allowed to delete from it, using a
- * switch that only lasts for this transaction.
+ * Removes expired demo workspaces, the oldest ones beyond a fixed total, and stale
+ * sessions and rate limit counters. Each sign-in removes up to five and adds one, so
+ * storage stays bounded however many visitors arrive, and nobody is ever turned away.
+ *
+ * The ledger is append-only, so this is the one place allowed to delete from it, using
+ * a switch that only lasts for this transaction.
  */
-export async function purgeExpired(db: Db | Tx, now = new Date()) {
+export async function purgeExpired(db: Db | Tx, now = new Date(), maxLiveDemos = MAX_LIVE_DEMOS) {
   await db.transaction(async (tx) => {
     await tx.execute(sql`select set_config('app.allow_purge', 'on', true)`);
     await tx.execute(sql`
       delete from organizations where id in (
-        select id from organizations
-        where expires_at < ${now.toISOString()}::timestamptz
+        select id from organizations where expires_at < ${now.toISOString()}::timestamptz
+        union
+        select id from (
+          select id from organizations
+          where expires_at is not null
+          order by created_at desc
+          offset ${maxLiveDemos}
+        ) beyond_limit
         limit 5
       )
     `);
+    await tx.delete(sessions).where(lt(sessions.expiresAt, now));
     await tx.delete(rateLimits).where(lt(rateLimits.windowStart, new Date(now.getTime() - 24 * 60 * 60 * 1000)));
   });
 }

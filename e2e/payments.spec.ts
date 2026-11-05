@@ -246,6 +246,13 @@ test.describe("scheduled payments", () => {
     await expect(page.getByRole("heading", { name: "Payment details" })).toBeVisible();
   });
 
+  test("a large scheduled payment offers no way to send it early", async ({ page }) => {
+    await page.goto("/payments");
+    const large = page.getByRole("listitem").filter({ hasText: "Landmark Properties" }).filter({ hasText: "Office rent" });
+    await expect(large.getByRole("button", { name: /^Cancel/ })).toBeVisible();
+    await expect(large.getByRole("button", { name: /^Send/ })).toHaveCount(0);
+  });
+
   test("a date in the past is refused", async ({ page }) => {
     await page.goto("/payments/new");
     await choose(page, "To account", /Reserve/);

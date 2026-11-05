@@ -59,6 +59,11 @@ test("pages send security headers and a unique nonce per request", async ({ requ
   expect(nonce).not.toBe(nonceOf(second.headers()["content-security-policy"]));
 });
 
+test("a prefetch request still gets the security policy", async ({ request }) => {
+  const response = await request.get("/login", { headers: { "next-router-prefetch": "1", purpose: "prefetch" } });
+  expect(response.headers()["content-security-policy"]).toContain("frame-ancestors 'none'");
+});
+
 test("signed-in pages load with no CSP violations or script errors", async ({ page }) => {
   const problems: string[] = [];
   page.on("pageerror", (error) => problems.push(error.message));

@@ -347,6 +347,22 @@ export async function runScheduledPayment(db: Db, orgId: string, id: string, act
   }
 }
 
+export type SendEarlyOutcome = RunOutcome | "verification_required";
+
+/**
+ * Someone choosing to send early is a new decision, so it follows the same rule as any
+ * payment. A large one has no code to check here, so it waits for its date instead.
+ */
+export async function sendScheduledEarly(db: Db, actor: Actor, id: string): Promise<SendEarlyOutcome> {
+  const [payment] = await db
+    .select({ amountCents: scheduledPayments.amountCents })
+    .from(scheduledPayments)
+    .where(and(eq(scheduledPayments.id, id), eq(scheduledPayments.orgId, actor.orgId)));
+  if (!payment) return "skipped";
+  if (requiresVerification(payment.amountCents)) return "verification_required";
+  return runScheduledPayment(db, actor.orgId, id, actor.userId);
+}
+
 /**
  * Catches up an organization's time-based work: settles older pending payments and
  * runs what's due. Safe to call often, or at the same time from two requests. A real

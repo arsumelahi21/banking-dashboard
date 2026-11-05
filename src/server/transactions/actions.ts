@@ -1,11 +1,12 @@
 "use server";
 
-import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
+import { consumeRateLimit } from "@/server/auth/rate-limit";
 import { requireSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
-import { auditLog, transactions } from "@/server/db/schema";
+import { logError } from "@/server/log";
+import { setTransactionMemo } from "./service";
 
 const MEMO_MAX_LENGTH = 280;
 
@@ -19,6 +20,9 @@ const memoInput = z.object({
 /** Memos are the only part of a transaction people can edit. Amounts and history can't change. */
 export async function updateMemo(_previous: MemoFormState, formData: FormData): Promise<MemoFormState> {
   const session = await requireSession();
+  // Every save writes to the permanent audit log, so saves are limited like other writes.
+  const allowed = await consumeRateLimit(getDb(), `memo:${session.userId}`, { limit: 60, windowSeconds: 600 });
+  if (!allowed) return { status: "error", message: "Too many changes. Please wait a few minutes and try again." };
 
   const parsed = memoInput.safeParse({
     transactionId: formData.get("transactionId"),
@@ -29,23 +33,13 @@ export async function updateMemo(_previous: MemoFormState, formData: FormData): 
   }
   const { transactionId, memo } = parsed.data;
 
-  const updated = await getDb().transaction(async (tx) => {
-    // The organization is part of the update, so another customer's id changes nothing.
-    const rows = await tx
-      .update(transactions)
-      .set({ memo: memo || null })
-      .where(and(eq(transactions.id, transactionId), eq(transactions.orgId, session.orgId)))
-      .returning({ id: transactions.id });
-    if (rows.length === 0) return false;
-
-    await tx.insert(auditLog).values({
-      orgId: session.orgId,
-      actorUserId: session.userId,
-      action: "transaction.memo_updated",
-      targetId: transactionId,
-    });
-    return true;
-  });
+  let updated: boolean;
+  try {
+    updated = await setTransactionMemo(getDb(), { orgId: session.orgId, userId: session.userId }, transactionId, memo);
+  } catch (error) {
+    logError("Saving a memo failed", error);
+    return { status: "error", message: "We couldn't save that. Please try again." };
+  }
 
   if (!updated) return { status: "error", message: "That transaction wasn't found." };
 

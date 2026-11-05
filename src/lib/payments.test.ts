@@ -57,6 +57,18 @@ describe("parsePaymentInput", () => {
     expect(fieldOf(transfer(overrides))).toBe(field);
   });
 
+  it("rejects anything that isn't text, as a crafted request might send", () => {
+    for (const bad of [{ fromAccountId: [A] }, { amount: 100 }, { memo: { a: 1 } }, { toAccountId: null }]) {
+      expect(fieldOf(transfer(bad as unknown as RawPaymentInput))).toBe("form");
+    }
+    expect(parsePaymentInput(null as unknown as RawPaymentInput, NOW)).toMatchObject({ ok: false, field: "form" });
+  });
+
+  it("sees the same account in different letter case as the same account", () => {
+    const upper = "ABCDEF01-1111-4111-8111-111111111111";
+    expect(fieldOf(transfer({ fromAccountId: upper, toAccountId: upper.toLowerCase() }))).toBe("to");
+  });
+
   it("accepts tomorrow and the last allowed day", () => {
     expect(fieldOf(transfer({ scheduledFor: "2026-11-07" }))).toBe("ok");
     expect(fieldOf(transfer({ scheduledFor: "2027-11-06" }))).toBe("ok");

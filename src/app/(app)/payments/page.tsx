@@ -12,6 +12,7 @@ import { formatDay, formatFullDay } from "@/lib/format";
 import { methodLabels } from "@/lib/transaction-filters";
 import { requireSession } from "@/server/auth/session";
 import { getDb } from "@/server/db/client";
+import { logError } from "@/server/log";
 import { processDuePayments } from "@/server/payments/service";
 import { listRecipients, listScheduledPayments, type ScheduledPaymentRow } from "@/server/queries/payments";
 import { listRecentPayments } from "@/server/queries/transactions";
@@ -52,7 +53,7 @@ export default async function PaymentsPage() {
   const session = await requireSession();
   const db = getDb();
   // A failure here must never stop someone from seeing their payments.
-  await processDuePayments(db, session.orgId).catch((error) => console.error("Processing due payments failed", error));
+  await processDuePayments(db, session.orgId).catch((error) => logError("Processing due payments failed", error));
 
   const [scheduled, recipients, recent] = await Promise.all([
     listScheduledPayments(db, session.orgId),

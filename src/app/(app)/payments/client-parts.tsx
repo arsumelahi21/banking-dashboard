@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { formatMoney } from "@/lib/money";
+import { VERIFICATION_THRESHOLD_CENTS } from "@/lib/payments";
 import {
   addRecipientAction,
   cancelScheduledAction,
@@ -15,6 +16,7 @@ import {
 
 /** Confirming first, because both actions are immediate and can't be undone. */
 export function ScheduledActions({ id, toName, amountCents }: { id: string; toName: string; amountCents: number }) {
+  const canSendEarly = amountCents < VERIFICATION_THRESHOLD_CENTS;
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string>();
   const amount = formatMoney(amountCents);
@@ -34,6 +36,7 @@ export function ScheduledActions({ id, toName, amountCents }: { id: string; toNa
   return (
     <div className="flex flex-col items-end gap-1">
       <div className="flex items-center gap-1">
+        {canSendEarly ? (
         <Dialog>
           <DialogTrigger asChild>
             <Button variant="ghost" size="sm" disabled={pending} aria-label={`Send now: ${amount} to ${toName}`}>
@@ -51,6 +54,7 @@ export function ScheduledActions({ id, toName, amountCents }: { id: string; toNa
             </div>
           </DialogContent>
         </Dialog>
+        ) : null}
 
         <Dialog>
           <DialogTrigger asChild>

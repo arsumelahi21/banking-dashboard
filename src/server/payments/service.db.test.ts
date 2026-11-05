@@ -15,6 +15,7 @@ import {
   processDuePayments,
   requiresVerification,
   runScheduledPayment,
+  sendScheduledEarly,
   submitPayment,
 } from "./service";
 
@@ -406,6 +407,29 @@ describe("payments", () => {
       await submitPayment(getDb(), actor(w), request, {});
       const altered = { ...request, amountCents: SMALL + 1 };
       expect(await codeOf(submitPayment(getDb(), actor(w), altered, {}))).toBe("IDEMPOTENCY_CONFLICT");
+    });
+
+    it("won't send a large payment early, including seeded ones never given a code", async () => {
+      const w = await createWorkspace();
+      const seeded = await getDb().select().from(scheduledPayments).where(eq(scheduledPayments.orgId, w.orgId));
+      const large = seeded.filter((row) => row.amountCents >= LARGE);
+      expect(large.length).toBeGreaterThan(0);
+
+      const before = await balance(w, w.operating);
+      for (const row of large) {
+        expect(await sendScheduledEarly(getDb(), actor(w), row.id)).toBe("verification_required");
+        expect((await rowOf(row.id)).status).toBe("scheduled");
+      }
+      expect(await balance(w, w.operating)).toEqual(before);
+    });
+
+    it("sends a smaller one early, once, and never another organization's", async () => {
+      const w = await createWorkspace();
+      const id = await schedule(w);
+      expect(await sendScheduledEarly(getDb(), actor(b), id)).toBe("skipped");
+      expect((await rowOf(id)).status).toBe("scheduled");
+      expect(await sendScheduledEarly(getDb(), actor(w), id)).toBe("completed");
+      expect(await sendScheduledEarly(getDb(), actor(w), id)).toBe("skipped");
     });
 
     it("settles ACH payments after two days, and not before", async () => {
