@@ -3,9 +3,12 @@ import Link from "next/link";
 import { Logo } from "@/components/shell/logo";
 import { BottomNav, SidebarNav } from "@/components/shell/nav";
 import { ThemeToggle } from "@/components/shell/theme-toggle";
+import { SignOutButton } from "@/components/shell/user-menu";
 import { parseThemePreference, THEME_COOKIE } from "@/lib/theme";
+import { requireSession } from "@/server/auth/session";
 
 export default async function AppLayout({ children }: LayoutProps<"/">) {
+  const session = await requireSession();
   const theme = parseThemePreference((await cookies()).get(THEME_COOKIE)?.value);
 
   return (
@@ -22,9 +25,18 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <Logo />
         </Link>
         <SidebarNav />
-        <div className="mt-auto flex items-center justify-between gap-2 pl-3">
-          <p className="text-xs text-fg-subtle">Simulated data</p>
-          <ThemeToggle initial={theme} />
+        <div className="mt-auto flex flex-col gap-3">
+          <div className="flex items-center justify-between gap-2 pl-3">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium text-fg">{session.name}</p>
+              <p className="truncate text-xs text-fg-muted">{session.orgName}</p>
+            </div>
+            <SignOutButton />
+          </div>
+          <div className="flex items-center justify-between gap-2 border-t border-border pt-2 pl-3">
+            <p className="text-xs text-fg-subtle">Simulated data</p>
+            <ThemeToggle initial={theme} />
+          </div>
         </div>
       </aside>
 
@@ -33,7 +45,10 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
           <Link href="/overview" className="rounded-md">
             <Logo />
           </Link>
-          <ThemeToggle initial={theme} />
+          <div className="flex items-center">
+            <ThemeToggle initial={theme} />
+            <SignOutButton />
+          </div>
         </header>
         <main
           id="main"

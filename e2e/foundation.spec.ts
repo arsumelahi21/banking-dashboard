@@ -1,14 +1,24 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
+import { randomIp, startDemo } from "./helpers";
+
+test.use({ extraHTTPHeaders: { "x-forwarded-for": randomIp() } });
+
+const violationsOn = async (page: Page) => {
+  const { violations } = await new AxeBuilder({ page }).analyze();
+  return violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(", ")}`);
+};
 
 for (const theme of ["light", "dark"]) {
-  test(`app shell has no accessibility violations in ${theme} mode`, async ({ page, context, baseURL }) => {
+  test(`sign in and app shell have no accessibility violations in ${theme} mode`, async ({ page, context, baseURL }) => {
     await context.addCookies([{ name: "theme", value: theme, url: baseURL! }]);
-    await page.goto("/overview");
-    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
 
-    const { violations } = await new AxeBuilder({ page }).analyze();
-    expect(violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target).join(", ")}`)).toEqual([]);
+    await page.goto("/login");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    expect(await violationsOn(page)).toEqual([]);
+
+    await startDemo(page);
+    expect(await violationsOn(page)).toEqual([]);
   });
 }
 
@@ -18,7 +28,7 @@ test("the design reference page is not available in production", async ({ reques
 
 test("the theme toggle updates the page and survives a reload", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto("/overview");
+  await startDemo(page);
   const toggle = page.getByRole("button", { name: /^Theme: system/ });
   await toggle.click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
@@ -34,8 +44,8 @@ test("health check reaches the database and is never cached", async ({ request }
 });
 
 test("pages send security headers and a unique nonce per request", async ({ request }) => {
-  const first = await request.get("/");
-  const second = await request.get("/");
+  const first = await request.get("/login");
+  const second = await request.get("/login");
 
   const headers = first.headers();
   expect(headers["x-frame-options"]).toBe("DENY");
@@ -49,15 +59,23 @@ test("pages send security headers and a unique nonce per request", async ({ requ
   expect(nonce).not.toBe(nonceOf(second.headers()["content-security-policy"]));
 });
 
-test("the page loads with no CSP violations or script errors", async ({ page }) => {
+test("signed-in pages load with no CSP violations or script errors", async ({ page }) => {
   const problems: string[] = [];
   page.on("pageerror", (error) => problems.push(error.message));
   page.on("console", (message) => {
     if (message.type() === "error") problems.push(message.text());
   });
 
-  await page.goto("/", { waitUntil: "networkidle" });
+  await startDemo(page);
+  await page.goto("/transactions", { waitUntil: "networkidle" });
 
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   expect(problems).toEqual([]);
+});
+
+test("signed-in pages can't be stored by shared caches", async ({ page }) => {
+  await startDemo(page);
+  const response = await page.goto("/overview");
+  const cacheControl = response!.headers()["cache-control"] ?? "";
+  expect(cacheControl).toContain("no-store");
 });

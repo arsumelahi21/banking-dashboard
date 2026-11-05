@@ -1,0 +1,223 @@
+import {
+  bigint,
+  check,
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgEnum,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+
+export const userRole = pgEnum("user_role", ["owner", "member"]);
+export const accountKind = pgEnum("account_kind", ["checking", "savings", "external"]);
+export const transactionStatus = pgEnum("transaction_status", ["pending", "posted", "failed"]);
+export const transactionMethod = pgEnum("transaction_method", [
+  "ach",
+  "wire",
+  "card",
+  "transfer",
+  "interest",
+  "fee",
+]);
+export const cardStatus = pgEnum("card_status", ["active", "frozen"]);
+
+const timestamps = {
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+};
+
+/** A customer's workspace, and the boundary every query is scoped to. */
+export const organizations = pgTable("organizations", {
+  id: uuid().primaryKey().defaultRandom(),
+  name: text().notNull(),
+  /** Demo workspaces are disposable and removed after this time. */
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  ...timestamps,
+});
+
+export const users = pgTable(
+  "users",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    email: text().notNull().unique(),
+    name: text().notNull(),
+    /** Null for demo users, who can only enter through one-click sign-in. */
+    passwordHash: text("password_hash"),
+    role: userRole().notNull().default("owner"),
+    ...timestamps,
+  },
+  (table) => [index("users_org_idx").on(table.orgId)],
+);
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    /** SHA-256 of the cookie token, so a database leak can't be replayed as logins. */
+    tokenHash: text("token_hash").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps,
+  },
+  (table) => [index("sessions_user_idx").on(table.userId)],
+);
+
+export const accounts = pgTable(
+  "accounts",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    kind: accountKind().notNull(),
+    /** Only the last digits are stored. The full number never enters this system. */
+    numberLast4: text("number_last4"),
+    currency: text().notNull().default("USD"),
+    ...timestamps,
+  },
+  (table) => [
+    unique("accounts_org_id_unique").on(table.orgId, table.id),
+    index("accounts_org_idx").on(table.orgId),
+  ],
+);
+
+export const cards = pgTable(
+  "cards",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    accountId: uuid("account_id").notNull(),
+    holderName: text("holder_name").notNull(),
+    label: text().notNull(),
+    numberLast4: text("number_last4").notNull(),
+    status: cardStatus().notNull().default("active"),
+    monthlyLimitCents: bigint("monthly_limit_cents", { mode: "number" }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    unique("cards_org_id_unique").on(table.orgId, table.id),
+    foreignKey({
+      name: "cards_account_fk",
+      columns: [table.orgId, table.accountId],
+      foreignColumns: [accounts.orgId, accounts.id],
+    }).onDelete("cascade"),
+    check("cards_limit_positive", sql`${table.monthlyLimitCents} > 0`),
+  ],
+);
+
+export const recipients = pgTable(
+  "recipients",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text().notNull(),
+    bankName: text("bank_name").notNull(),
+    numberLast4: text("number_last4").notNull(),
+    ...timestamps,
+  },
+  (table) => [index("recipients_org_idx").on(table.orgId)],
+);
+
+/** What happened, as people see it. The money itself moves in `ledger_entries`. */
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    status: transactionStatus().notNull(),
+    method: transactionMethod().notNull(),
+    description: text().notNull(),
+    counterparty: text().notNull(),
+    category: text().notNull(),
+    memo: text(),
+    cardId: uuid("card_id"),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    /** Set on user-initiated money movement, so a retry can't send money twice. */
+    idempotencyKey: text("idempotency_key"),
+    idempotencyFingerprint: text("idempotency_fingerprint"),
+    ...timestamps,
+  },
+  (table) => [
+    unique("transactions_org_id_unique").on(table.orgId, table.id),
+    unique("transactions_idempotency_unique").on(table.orgId, table.idempotencyKey),
+    foreignKey({
+      name: "transactions_card_fk",
+      columns: [table.orgId, table.cardId],
+      foreignColumns: [cards.orgId, cards.id],
+    }).onDelete("cascade"),
+    index("transactions_org_occurred_idx").on(table.orgId, table.occurredAt.desc()),
+  ],
+);
+
+/**
+ * Append-only, double-entry lines. Database triggers (see the migrations) reject
+ * unbalanced transactions and any edit. Composite foreign keys make it impossible
+ * for a line to touch another organization's account or transaction.
+ */
+export const ledgerEntries = pgTable(
+  "ledger_entries",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id").notNull(),
+    transactionId: uuid("transaction_id").notNull(),
+    accountId: uuid("account_id").notNull(),
+    amountCents: bigint("amount_cents", { mode: "number" }).notNull(),
+    ...timestamps,
+  },
+  (table) => [
+    foreignKey({
+      name: "ledger_entries_transaction_fk",
+      columns: [table.orgId, table.transactionId],
+      foreignColumns: [transactions.orgId, transactions.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "ledger_entries_account_fk",
+      columns: [table.orgId, table.accountId],
+      foreignColumns: [accounts.orgId, accounts.id],
+    }).onDelete("cascade"),
+    check("ledger_entries_amount_nonzero", sql`${table.amountCents} <> 0`),
+    index("ledger_entries_account_idx").on(table.accountId),
+    index("ledger_entries_transaction_idx").on(table.transactionId),
+  ],
+);
+
+/** Append-only record of security-relevant and money-moving actions. */
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: uuid().primaryKey().defaultRandom(),
+    orgId: uuid("org_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    actorUserId: uuid("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    action: text().notNull(),
+    targetId: text("target_id"),
+    metadata: jsonb().$type<Record<string, string | number | boolean>>(),
+    ...timestamps,
+  },
+  (table) => [index("audit_log_org_idx").on(table.orgId, table.createdAt.desc())],
+);
+
+/** Lives in Postgres because serverless instances share no memory. Keys are hashed. */
+export const rateLimits = pgTable("rate_limits", {
+  keyHash: text("key_hash").primaryKey(),
+  windowStart: timestamp("window_start", { withTimezone: true }).notNull(),
+  count: integer().notNull(),
+});

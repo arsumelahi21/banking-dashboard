@@ -10,7 +10,11 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check": "npm run lint && npm run typecheck && npm test"
+    "check": "npm run lint && npm run typecheck && npm test",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:create-user": "tsx --conditions=react-server --tsconfig tsconfig.json scripts/create-user.mts",
+    "test:db": "vitest run --config vitest.db.config.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
