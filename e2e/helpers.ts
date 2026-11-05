@@ -10,4 +10,6 @@ export async function startDemo(page: Page): Promise<void> {
   await page.goto("/login");
   await page.getByRole("button", { name: "Explore the demo" }).click();
   await expect(page).toHaveURL(/\/overview$/, { timeout: 30_000 });
+  // The URL changes before the page finishes streaming in behind its skeleton.
+  await expect(page.getByRole("heading", { level: 1, name: "Overview" })).toBeVisible();
 }

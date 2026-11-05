@@ -6,7 +6,7 @@ type MoneyProps = {
   currency?: string;
   /** Show the sign and color inflows green. Outflows stay neutral: spending isn't an error. */
   signed?: boolean;
-  /** Large serif style for headline balances. */
+  /** Headline style. Proportional digits, because this number stands alone instead of aligning in a column. */
   display?: boolean;
   className?: string;
 };
@@ -15,7 +15,7 @@ export function Money({ cents, currency, signed = false, display = false, classN
   return (
     <span
       className={cn(
-        display ? "font-display tracking-wide" : "tabular-nums",
+        display ? "font-semibold tracking-tight" : "tabular-nums",
         signed && cents > 0 && "text-positive",
         className,
       )}
